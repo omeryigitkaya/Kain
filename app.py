@@ -5,9 +5,9 @@ import yfinance as yf
 import matplotlib.pyplot as plt
 import streamlit_authenticator as stauth
 import yaml
-# pandas_ta artık kullanılmıyor
+# pandas_ta artık kullanılmıyor.
 from pypfopt import BlackLittermanModel, risk_models
-# plotting artık kullanılmıyor
+# plotting artık kullanılmıyor.
 from pypfopt.efficient_frontier import EfficientFrontier
 from pypfopt.exceptions import OptimizationError
 import io
@@ -24,14 +24,12 @@ import time
 warnings.filterwarnings("ignore")
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
 st.set_page_config(layout="wide", page_title="Finansal Asistan")
-# HATAYI ÖNLEMEK İÇİN KENDİ STİLİMİZİ BELİRLİYORUZ
 plt.style.use('seaborn-v0_8-darkgrid')
 
 # =======================================================
 # BÖLÜM 1: TÜM YARDIMCI FONKSİYONLAR
 # =======================================================
 
-# YENİ FONKSİYON: Kendi Grafik Çizim Motorumuz
 def cizim_yap_agirliklar(weights, ax=None):
     if ax is None:
         fig, ax = plt.subplots()
@@ -44,7 +42,6 @@ def cizim_yap_agirliklar(weights, ax=None):
 @st.cache_data(show_spinner=False)
 def piyasa_rejimini_belirle():
     st.write("Piyasa rejimi analiz ediliyor...")
-    # ... (Bu fonksiyon önceki kodla aynı, değişiklik yok)
     rejim_gostergeleri = {
         "NASDAQ": {"ticker": "^IXIC", "yon": "yukari"}, "BIST 100": {"ticker": "XU100.IS", "yon": "yukari"},
         "Altın": {"ticker": "GC=F", "yon": "yukari"}, "Bitcoin": {"ticker": "BTC-USD", "yon": "yukari"},
@@ -67,6 +64,7 @@ def piyasa_rejimini_belirle():
             puan = 1 if (info['yon'] == 'yukari' and son_fiyat > son_ma200) or (info['yon'] == 'asagi' and son_fiyat < son_ma200) else -1
             toplam_puan += puan; puan_detaylari[isim] = "POZİTİF (+1)" if puan == 1 else "NEGATİF (-1)"
         except Exception as e: puan_detaylari[isim] = f"İşlenemedi (0) - {e}"
+    
     if toplam_puan >= 3: rejim = "GÜÇLÜ POZİTİF (BOĞA 🐂🐂)"
     elif toplam_puan >= 1: rejim = "TEMKİNLİ POZİTİF (BOĞA 🐂)"
     else: rejim = "TEMKİNLİ NEGATİF (AYI 🐻)"
@@ -74,7 +72,6 @@ def piyasa_rejimini_belirle():
 
 @st.cache_data
 def auto_format_tickers(df_list):
-    # ... (Bu fonksiyon önceki kodla aynı, değişiklik yok)
     all_formatted = []
     for df in df_list:
         formatted_list = []; commodity_map = {"GOLD": "GC=F", "SILVER": "SI=F", "XAUUSD": "GC=F", "XAGUSD": "SI=F", "WTI": "CL=F", "CRUDE": "CL=F", "OIL": "CL=F", "COPPER": "HG=F", "NATURALGAS": "NG=F"}; crypto_suffixes = ["USDT", "PERP", "BUSD", "USDC"]; crypto_exchanges = ["CRYPTO", "BINANCE", "COINBASE", "KUCOIN", "KRAKEN", "COIN", "KIN"]
@@ -101,7 +98,6 @@ def auto_format_tickers(df_list):
 
 @st.cache_data
 def veri_cek_ve_dogrula(tickers, start, end):
-    # ... (Bu fonksiyon önceki kodla aynı, değişiklik yok)
     gecerli_datalar = {}; gecersiz_tickerlar = []
     progress_bar = st.progress(0, text="Varlıklar doğrulanıyor...")
     for i, ticker in enumerate(tickers):
@@ -121,7 +117,6 @@ def veri_cek_ve_dogrula(tickers, start, end):
 
 @st.cache_data
 def sinyal_uret_ensemble_lstm(fiyat_verisi_tuple, look_back_periods=[12, 26, 52]):
-    # ... (Bu fonksiyon önceki kodla aynı, değişiklik yok)
     fiyat_verisi = pd.Series(fiyat_verisi_tuple[1], index=pd.to_datetime(fiyat_verisi_tuple[0]), name="Close")
     predictions = []
     for look_back in look_back_periods:
@@ -146,7 +141,6 @@ def sinyal_uret_ensemble_lstm(fiyat_verisi_tuple, look_back_periods=[12, 26, 52]
 
 @st.cache_data
 def sinyal_uret_duyarlilik(ticker):
-    # ... (Bu fonksiyon önceki kodla aynı, değişiklik yok)
     try:
         stock = yf.Ticker(ticker); news = stock.news
         if not news: return 0.0
@@ -157,7 +151,6 @@ def sinyal_uret_duyarlilik(ticker):
 
 @st.cache_data
 def portfoyu_optimize_et(sinyaller_tuple, fiyat_verisi_tuple, piyasa_rejimi):
-    # ... (Bu fonksiyon önceki kodla aynı, değişiklik yok)
     sinyaller = dict(sinyaller_tuple)
     fiyat_verisi = pd.DataFrame(fiyat_verisi_tuple[1], index=pd.to_datetime(fiyat_verisi_tuple[0]), columns=fiyat_verisi_tuple[2])
     gecerli_sinyaller = {t: s for t, s in sinyaller.items() if np.isfinite(s)}
@@ -187,10 +180,9 @@ def portfoyu_optimize_et(sinyaller_tuple, fiyat_verisi_tuple, piyasa_rejimi):
 # BÖLÜM 2: GÜVENLİ GİRİŞ SİSTEMİ VE STREAMLIT UYGULAMASI
 # =======================================================
 
-# DÜZELTME BU BLOKTA
 try:
-    # try bloğunun içindeki her şey bir boşluk içeride olmalı
-    credentials = st.secrets['credentials'].copy()
+    # DÜZELTME BURADA: .copy() yerine dict() kullanıyoruz.
+    credentials = dict(st.secrets['credentials'])
     config_cookie = st.secrets['cookie']
     config_preauth = st.secrets['preauthorized']
 except (FileNotFoundError, KeyError):
@@ -277,7 +269,6 @@ if st.session_state["authentication_status"]:
                     col2.metric("Tahmini Hafta Sonu Değeri", f"${toplam_tahmini_deger:,.2f}")
                     col3.metric("Tahmini Kar/Zarar", f"${tahmini_kar_zarar:,.2f}", f"{tahmini_kar_zarar/yatirim_tutari:.2%}")
 
-                    # Kendi çizim fonksiyonumuzu çağırıyoruz
                     fig = cizim_yap_agirliklar(optimal_agirliklar)
                     st.pyplot(fig)
                 else:
