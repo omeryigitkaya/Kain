@@ -5,7 +5,6 @@ import yfinance as yf
 import matplotlib.pyplot as plt
 import streamlit_authenticator as stauth
 import yaml
-import pandas_ta as ta
 from pypfopt import BlackLittermanModel, risk_models, plotting
 from pypfopt.efficient_frontier import EfficientFrontier
 from pypfopt.exceptions import OptimizationError
