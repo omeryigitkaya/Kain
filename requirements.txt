@@ -1,11 +1,11 @@
 streamlit
 pandas
-numpy
+numpy==1.23.5
 yfinance
 pandas-ta
 PyPortfolioOpt
-scikit-learn
-tensorflow-cpu
+scikit-learn==1.2.2
+tensorflow-cpu==2.12.0
 nltk
 requests
 beautifulsoup4
