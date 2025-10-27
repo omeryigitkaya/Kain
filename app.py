@@ -22,13 +22,11 @@ import time
 # --- Gerekli Ayarlar ---
 warnings.filterwarnings("ignore")
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
-st.set_page_config(layout="wide")
+st.set_page_config(layout="wide", page_title="Finansal Asistan")
 
 # =======================================================
-# BÖLÜM 1: TÜM YARDIMCI FONKSİYONLAR
+# BÖLÜM 1: TÜM YARDIMCI FONKSİYONLAR (CACHE'LENMİŞ)
 # =======================================================
-# Not: Streamlit'in cache'i, bu fonksiyonların sonuçlarını hafızada tutar.
-# Bu, uygulamanızın çok daha hızlı çalışmasını sağlar.
 
 @st.cache_data(show_spinner=False)
 def piyasa_rejimini_belirle():
@@ -62,27 +60,30 @@ def piyasa_rejimini_belirle():
     return rejim
 
 @st.cache_data
-def auto_format_tickers(df):
-    formatted_list = []; commodity_map = {"GOLD": "GC=F", "SILVER": "SI=F", "XAUUSD": "GC=F", "XAGUSD": "SI=F", "WTI": "CL=F", "CRUDE": "CL=F", "OIL": "CL=F", "COPPER": "HG=F", "NATURALGAS": "NG=F"}; crypto_suffixes = ["USDT", "PERP", "BUSD", "USDC"]; crypto_exchanges = ["CRYPTO", "BINANCE", "COINBASE", "KUCOIN", "KRAKEN", "COIN", "KIN"]
-    df.columns = df.columns.str.lower().str.strip()
-    symbol_col = 'sembol' if 'sembol' in df.columns else 'symbol'; exchange_col = 'borsa' if 'borsa' in df.columns else 'exchange'
-    if symbol_col not in df.columns: raise ValueError("CSV'de en azından ('Sembol'/'Symbol') sütunu bulunmalıdır!")
-    for index, row in df.iterrows():
-        ticker = str(row[symbol_col]).upper(); exchange = str(row.get(exchange_col, '')).upper()
-        if ticker in commodity_map: formatted_list.append(commodity_map[ticker]); continue
-        is_crypto_by_exchange = any(ex in exchange for ex in crypto_exchanges)
-        if is_crypto_by_exchange:
-            clean_ticker = ticker;
-            for suffix in crypto_suffixes: clean_ticker = clean_ticker.replace(suffix, "")
-            formatted_list.append(f"{clean_ticker}-USD"); continue
-        if "BIST" in exchange or "XIST" in exchange: formatted_list.append(f"{ticker}.IS"); continue
-        is_crypto_by_suffix = False
-        for suffix in crypto_suffixes:
-            if ticker.endswith(suffix):
-                clean_ticker = ticker.replace(suffix, ""); formatted_list.append(f"{clean_ticker}-USD"); is_crypto_by_suffix = True; break
-        if is_crypto_by_suffix: continue
-        formatted_list.append(ticker)
-    return list(set(formatted_list))
+def auto_format_tickers(df_list):
+    all_formatted = []
+    for df in df_list:
+        formatted_list = []; commodity_map = {"GOLD": "GC=F", "SILVER": "SI=F", "XAUUSD": "GC=F", "XAGUSD": "SI=F", "WTI": "CL=F", "CRUDE": "CL=F", "OIL": "CL=F", "COPPER": "HG=F", "NATURALGAS": "NG=F"}; crypto_suffixes = ["USDT", "PERP", "BUSD", "USDC"]; crypto_exchanges = ["CRYPTO", "BINANCE", "COINBASE", "KUCOIN", "KRAKEN", "COIN", "KIN"]
+        df.columns = df.columns.str.lower().str.strip()
+        symbol_col = 'sembol' if 'sembol' in df.columns else 'symbol'; exchange_col = 'borsa' if 'borsa' in df.columns else 'exchange'
+        if symbol_col not in df.columns: raise ValueError("CSV'de en azından ('Sembol'/'Symbol') sütunu bulunmalıdır!")
+        for index, row in df.iterrows():
+            ticker = str(row[symbol_col]).upper(); exchange = str(row.get(exchange_col, '')).upper()
+            if ticker in commodity_map: formatted_list.append(commodity_map[ticker]); continue
+            is_crypto_by_exchange = any(ex in exchange for ex in crypto_exchanges)
+            if is_crypto_by_exchange:
+                clean_ticker = ticker;
+                for suffix in crypto_suffixes: clean_ticker = clean_ticker.replace(suffix, "")
+                formatted_list.append(f"{clean_ticker}-USD"); continue
+            if "BIST" in exchange or "XIST" in exchange: formatted_list.append(f"{ticker}.IS"); continue
+            is_crypto_by_suffix = False
+            for suffix in crypto_suffixes:
+                if ticker.endswith(suffix):
+                    clean_ticker = ticker.replace(suffix, ""); formatted_list.append(f"{clean_ticker}-USD"); is_crypto_by_suffix = True; break
+            if is_crypto_by_suffix: continue
+            formatted_list.append(ticker)
+        all_formatted.extend(formatted_list)
+    return list(set(all_formatted))
 
 @st.cache_data
 def veri_cek_ve_dogrula(tickers, start, end):
@@ -165,21 +166,25 @@ def portfoyu_optimize_et(sinyaller_tuple, fiyat_verisi_tuple, piyasa_rejimi):
     return weights
 
 # =======================================================
-# BÖLÜM 2: GİRİŞ SİSTEMİ VE STREAMLIT UYGULAMASI
+# BÖLÜM 2: GÜVENLİ GİRİŞ SİSTEMİ VE STREAMLIT UYGULAMASI
 # =======================================================
 
-# 1. Kullanıcı Veritabanını Yükle
-# Bu config dosyasını app.py ile aynı klasöre koymalısınız.
-with open('config.yaml') as file:
-    config = yaml.load(file, Loader=yaml.SafeLoader)
+# 1. Kullanıcı Veritabanını Yükle (Önce Sırlar Kasasından, sonra config.yaml'dan)
+try:
+    credentials = st.secrets['credentials']
+    config_cookie = st.secrets['cookie']
+    config_preauth = st.secrets['preauthorized']
+except (FileNotFoundError, KeyError):
+    st.error("Uygulama ayarları eksik. Lütfen yönetici ile iletişime geçin. (Secrets bölümü ayarlanmamış)")
+    st.stop()
 
 # 2. Giriş Sistemini Oluştur
 authenticator = stauth.Authenticate(
-    config['credentials'],
-    config['cookie']['name'],
-    config['cookie']['key'],
-    config['cookie']['expiry_days'],
-    config['preauthorized']
+    credentials,
+    config_cookie['name'],
+    config_cookie['key'],
+    config_cookie['expiry_days'],
+    config_preauth
 )
 
 # 3. Giriş Formunu Göster
@@ -195,18 +200,14 @@ if st.session_state["authentication_status"]:
     st.write("Yapay zeka, duyarlılık analizi ve piyasa rejimine göre kişiselleştirilmiş haftalık portföy önerileri.")
 
     # Admin Paneli (Sadece 'admin' kullanıcısı için)
-    if username == 'admin': # config.yaml dosyanızdaki admin kullanıcı adı
+    if username == 'admin':
         st.sidebar.header("Yönetici Paneli")
         admin_uploaded_files = st.sidebar.file_uploader("Haftanın Varlıklarını Yükle:", type="csv", accept_multiple_files=True)
         if st.sidebar.button("Varlıkları Sisteme Kaydet"):
             if admin_uploaded_files:
                 with st.spinner("Varlık listesi işleniyor..."):
-                    all_tickers = []
-                    for file in admin_uploaded_files:
-                        raw_df = pd.read_csv(file)
-                        formatted_tickers = auto_format_tickers(raw_df)
-                        all_tickers.extend(formatted_tickers)
-                    st.session_state['haftanin_varliklari'] = list(set(all_tickers))
+                    df_list = [pd.read_csv(file) for file in admin_uploaded_files]
+                    st.session_state['haftanin_varliklari'] = auto_format_tickers(df_list)
                 st.sidebar.success(f"{len(st.session_state['haftanin_varliklari'])} varlık kaydedildi!")
                 st.sidebar.json(st.session_state['haftanin_varliklari'])
     
