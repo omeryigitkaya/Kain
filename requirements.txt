@@ -1,0 +1,11 @@
+streamlit
+pandas
+numpy
+yfinance
+pandas-ta
+pypfopt
+scikit-learn
+tensorflow
+nltk
+requests
+beautifulsoup4
