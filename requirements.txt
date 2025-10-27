@@ -9,3 +9,5 @@ tensorflow
 nltk
 requests
 beautifulsoup4
+streamlit-authenticator
+PyYAML
