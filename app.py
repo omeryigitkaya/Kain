@@ -3,8 +3,6 @@ import pandas as pd
 import numpy as np
 import yfinance as yf
 import matplotlib.pyplot as plt
-import streamlit_authenticator as stauth
-import yaml
 from pypfopt import BlackLittermanModel, risk_models
 from pypfopt.efficient_frontier import EfficientFrontier
 from pypfopt.exceptions import OptimizationError
@@ -37,6 +35,7 @@ def cizim_yap_agirliklar(weights, ax=None):
 @st.cache_data(show_spinner=False)
 def piyasa_rejimini_belirle():
     st.write("Piyasa rejimi analiz ediliyor...")
+    # ... (Fonksiyon içeriği değişmedi)
     rejim_gostergeleri = {
         "NASDAQ": {"ticker": "^IXIC", "yon": "yukari"}, "BIST 100": {"ticker": "XU100.IS", "yon": "yukari"},
         "Altın": {"ticker": "GC=F", "yon": "yukari"}, "Bitcoin": {"ticker": "BTC-USD", "yon": "yukari"},
@@ -67,6 +66,7 @@ def piyasa_rejimini_belirle():
 
 @st.cache_data
 def auto_format_tickers(df_list):
+    # ... (Fonksiyon içeriği değişmedi)
     all_formatted = []
     for df in df_list:
         formatted_list = []; commodity_map = {"GOLD": "GC=F", "SILVER": "SI=F", "XAUUSD": "GC=F", "XAGUSD": "SI=F", "WTI": "CL=F", "CRUDE": "CL=F", "OIL": "CL=F", "COPPER": "HG=F", "NATURALGAS": "NG=F"}; crypto_suffixes = ["USDT", "PERP", "BUSD", "USDC"]; crypto_exchanges = ["CRYPTO", "BINANCE", "COINBASE", "KUCOIN", "KRAKEN", "COIN", "KIN"]
@@ -93,6 +93,7 @@ def auto_format_tickers(df_list):
 
 @st.cache_data
 def veri_cek_ve_dogrula(tickers, start, end):
+    # ... (Fonksiyon içeriği değişmedi)
     gecerli_datalar = {}; gecersiz_tickerlar = []
     progress_bar = st.progress(0, text="Varlıklar doğrulanıyor...")
     for i, ticker in enumerate(tickers):
@@ -112,6 +113,7 @@ def veri_cek_ve_dogrula(tickers, start, end):
 
 @st.cache_data
 def sinyal_uret_ensemble_lstm(fiyat_verisi_tuple, look_back_periods=[12, 26, 52]):
+    # ... (Fonksiyon içeriği değişmedi)
     fiyat_verisi = pd.Series(fiyat_verisi_tuple[1], index=pd.to_datetime(fiyat_verisi_tuple[0]), name="Close")
     predictions = []
     for look_back in look_back_periods:
@@ -136,6 +138,7 @@ def sinyal_uret_ensemble_lstm(fiyat_verisi_tuple, look_back_periods=[12, 26, 52]
 
 @st.cache_data
 def sinyal_uret_duyarlilik(ticker):
+    # ... (Fonksiyon içeriği değişmedi)
     try:
         stock = yf.Ticker(ticker); news = stock.news
         if not news: return 0.0
@@ -146,6 +149,7 @@ def sinyal_uret_duyarlilik(ticker):
 
 @st.cache_data
 def portfoyu_optimize_et(sinyaller_tuple, fiyat_verisi_tuple, piyasa_rejimi):
+    # ... (Fonksiyon içeriği değişmedi)
     sinyaller = dict(sinyaller_tuple)
     fiyat_verisi = pd.DataFrame(fiyat_verisi_tuple[1], index=pd.to_datetime(fiyat_verisi_tuple[0]), columns=fiyat_verisi_tuple[2])
     gecerli_sinyaller = {t: s for t, s in sinyaller.items() if np.isfinite(s)}
@@ -172,45 +176,45 @@ def portfoyu_optimize_et(sinyaller_tuple, fiyat_verisi_tuple, piyasa_rejimi):
     return weights
 
 # =======================================================
-# BÖLÜM 2: GÜVENLİ GİRİŞ SİSTEMİ VE STREAMLIT UYGULAMASI
+# BÖLÜM 2: BASİT VE GÜVENLİ GİRİŞ SİSTEMİ
 # =======================================================
 
-try:
-    # Secrets nesnesini, üzerinde değişiklik yapılabilen normal bir sözlüğe (dict) manuel olarak inşa ediyoruz.
-    credentials = {
-        'usernames': {
-            username: {
-                'email': st.secrets.credentials.usernames[username].email,
-                'name': st.secrets.credentials.usernames[username].name,
-                'password': st.secrets.credentials.usernames[username].password
-            }
-            for username in st.secrets.credentials.usernames
-        }
-    }
-    config_cookie = st.secrets['cookie']
-    config_preauth = st.secrets['preauthorized']
-except (AttributeError, KeyError):
-    st.error("Uygulama ayarları eksik veya hatalı. Lütfen yönetici ile iletişime geçin. (Secrets bölümü ayarlanmamış olabilir)")
-    st.stop()
+def check_password():
+    """Returns `True` if the user had the correct password."""
+    def password_entered():
+        if st.session_state["password"] == st.secrets["password"]:
+            st.session_state["password_correct"] = True
+            del st.session_state["password"]
+        else:
+            st.session_state["password_correct"] = False
 
-authenticator = stauth.Authenticate(credentials, config_cookie['name'], config_cookie['key'], config_cookie['expiry_days'], config_preauth)
+    if "password_correct" not in st.session_state:
+        st.text_input("Şifre", type="password", on_change=password_entered, key="password")
+        st.write("---")
+        return False
+    elif not st.session_state["password_correct"]:
+        st.text_input("Şifre", type="password", on_change=password_entered, key="password")
+        st.error("😕 Şifre yanlış.")
+        return False
+    else:
+        return True
 
-name, authentication_status, username = authenticator.login('main')
+# =======================================================
+# BÖLÜM 3: STREAMLIT UYGULAMASI
+# =======================================================
 
-if st.session_state["authentication_status"]:
-    st.sidebar.title(f"Hoş Geldiniz, {st.session_state['name']}!")
-    authenticator.logout('Çıkış Yap', 'sidebar')
-    st.title("🤖 Kişisel Portföy Optimizasyon Asistanı")
+st.title("🤖 Kişisel Portföy Optimizasyon Asistanı")
 
-    if username == 'admin':
-        st.sidebar.header("Yönetici Paneli")
-        admin_uploaded_files = st.sidebar.file_uploader("Haftanın Varlıklarını Yükle:", type="csv", accept_multiple_files=True)
-        if st.sidebar.button("Varlıkları Sisteme Kaydet"):
-            if admin_uploaded_files:
-                with st.spinner("Varlık listesi işleniyor..."):
-                    df_list = [pd.read_csv(file) for file in admin_uploaded_files]
-                    st.session_state['haftanin_varliklari'] = auto_format_tickers(df_list)
-                st.sidebar.success(f"{len(st.session_state['haftanin_varliklari'])} varlık kaydedildi!")
+if check_password():
+    st.sidebar.success("Giriş Başarılı!")
+    st.sidebar.header("Yönetici Paneli")
+    admin_uploaded_files = st.sidebar.file_uploader("Haftanın Varlıklarını Yükle:", type="csv", accept_multiple_files=True)
+    if st.sidebar.button("Varlıkları Sisteme Kaydet"):
+        if admin_uploaded_files:
+            with st.spinner("Varlık listesi işleniyor..."):
+                df_list = [pd.read_csv(file) for file in admin_uploaded_files]
+                st.session_state['haftanin_varliklari'] = auto_format_tickers(df_list)
+            st.sidebar.success(f"{len(st.session_state['haftanin_varliklari'])} varlık kaydedildi!")
     
     st.header("Kişisel Yatırım Planınızı Oluşturun")
 
@@ -269,7 +273,7 @@ if st.session_state["authentication_status"]:
                     tahmini_kar_zarar = toplam_tahmini_deger - yatirim_tutari
                     st.subheader("Haftalık Özet")
                     col1, col2, col3 = st.columns(3)
-                    col1.metric("Başlangıç Sermayesi", f"${yatirim_tutari:,.2f}")
+                    col1.metric("Başlangıç Sermeyesi", f"${yatirim_tutari:,.2f}")
                     col2.metric("Tahmini Hafta Sonu Değeri", f"${toplam_tahmini_deger:,.2f}")
                     col3.metric("Tahmini Kar/Zarar", f"${tahmini_kar_zarar:,.2f}", f"{tahmini_kar_zarar/yatirim_tutari:.2%}")
 
@@ -279,8 +283,3 @@ if st.session_state["authentication_status"]:
                     st.error("Geçerli sinyal bulunamadığı için portföy önerisi oluşturulamadı.")
     else:
         st.warning("Sistem yeni hafta için hazırlanıyor. Lütfen bir yöneticinin haftanın varlık listesini yüklemesini bekleyin.")
-
-elif st.session_state["authentication_status"] is False:
-    st.error('Kullanıcı adı/şifre yanlış')
-elif st.session_state["authentication_status"] is None:
-    st.warning('Lütfen kullanıcı adı ve şifrenizi girin')
