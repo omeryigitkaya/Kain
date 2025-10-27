@@ -1,0 +1,9 @@
+# KULLANICI BİLGİLERİ BURADAN SİLİNDİ!
+# Onlar artık Streamlit'in gizli kasasında.
+
+cookie:
+  expiry_days: 30
+  key: a_very_secret_key_12345
+  name: finansal_asistan_cookie
+preauthorized:
+  emails: []
