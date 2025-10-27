@@ -4,8 +4,8 @@ numpy
 yfinance
 pandas-ta
 pypfopt
-scikit-learn==1.2.2  # Tensorflow ile uyumlu stabil bir versiyon
-tensorflow==2.12.0 # Streamlit Cloud'da sorunsuz çalıştığı bilinen bir versiyon
+scikit-learn==1.2.2
+tensorflow==2.12.0
 nltk
 requests
 beautifulsoup4
