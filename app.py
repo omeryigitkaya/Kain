@@ -3,7 +3,6 @@ import pandas as pd
 import numpy as np
 import yfinance as yf
 import matplotlib.pyplot as plt
-# streamlit_authenticator artık kullanılmıyor.
 import yaml
 from pypfopt import BlackLittermanModel, risk_models
 from pypfopt.efficient_frontier import EfficientFrontier
@@ -17,6 +16,7 @@ import os
 from tqdm import tqdm
 from nltk.sentiment.vader import SentimentIntensityAnalyzer
 import time
+import requests
 
 # --- Gerekli Ayarlar ---
 warnings.filterwarnings("ignore")
@@ -64,7 +64,7 @@ def piyasa_rejimini_belirle():
             toplam_puan += puan; puan_detaylari[isim] = "POZİTİF (+1)" if puan == 1 else "NEGATİF (-1)"
         except Exception as e:
             puan_detaylari[isim] = f"İşlenemedi (0) - {e}"
-
+    
     if toplam_puan >= 3:
         rejim = "GÜÇLÜ POZİTİF (BOĞA 🐂🐂)"
     elif toplam_puan >= 1:
@@ -74,30 +74,27 @@ def piyasa_rejimini_belirle():
     return rejim
 
 @st.cache_data
-def auto_format_tickers(df_list):
-    all_formatted = []
-    for df in df_list:
-        formatted_list = []; commodity_map = {"GOLD": "GC=F", "SILVER": "SI=F", "XAUUSD": "GC=F", "XAGUSD": "SI=F", "WTI": "CL=F", "CRUDE": "CL=F", "OIL": "CL=F", "COPPER": "HG=F", "NATURALGAS": "NG=F"}; crypto_suffixes = ["USDT", "PERP", "BUSD", "USDC"]; crypto_exchanges = ["CRYPTO", "BINANCE", "COINBASE", "KUCOIN", "KRAKEN", "COIN", "KIN"]
-        df.columns = df.columns.str.lower().str.strip()
-        symbol_col = 'sembol' if 'sembol' in df.columns else 'symbol'; exchange_col = 'borsa' if 'borsa' in df.columns else 'exchange'
-        if symbol_col not in df.columns: raise ValueError("CSV'de en azından ('Sembol'/'Symbol') sütunu bulunmalıdır!")
-        for index, row in df.iterrows():
-            ticker = str(row[symbol_col]).upper(); exchange = str(row.get(exchange_col, '')).upper()
-            if ticker in commodity_map: formatted_list.append(commodity_map[ticker]); continue
-            is_crypto_by_exchange = any(ex in exchange for ex in crypto_exchanges)
-            if is_crypto_by_exchange:
-                clean_ticker = ticker;
-                for suffix in crypto_suffixes: clean_ticker = clean_ticker.replace(suffix, "")
-                formatted_list.append(f"{clean_ticker}-USD"); continue
-            if "BIST" in exchange or "XIST" in exchange: formatted_list.append(f"{ticker}.IS"); continue
-            is_crypto_by_suffix = False
-            for suffix in crypto_suffixes:
-                if ticker.endswith(suffix):
-                    clean_ticker = ticker.replace(suffix, ""); formatted_list.append(f"{clean_ticker}-USD"); is_crypto_by_suffix = True; break
-            if is_crypto_by_suffix: continue
-            formatted_list.append(ticker)
-        all_formatted.extend(formatted_list)
-    return list(set(all_formatted))
+def auto_format_tickers(df):
+    formatted_list = []; commodity_map = {"GOLD": "GC=F", "SILVER": "SI=F", "XAUUSD": "GC=F", "XAGUSD": "SI=F", "WTI": "CL=F", "CRUDE": "CL=F", "OIL": "CL=F", "COPPER": "HG=F", "NATURALGAS": "NG=F"}; crypto_suffixes = ["USDT", "PERP", "BUSD", "USDC"]; crypto_exchanges = ["CRYPTO", "BINANCE", "COINBASE", "KUCOIN", "KRAKEN", "COIN", "KIN"]
+    df.columns = df.columns.str.lower().str.strip()
+    symbol_col = 'sembol' if 'sembol' in df.columns else 'symbol'; exchange_col = 'borsa' if 'borsa' in df.columns else 'exchange'
+    if symbol_col not in df.columns: raise ValueError("CSV'de en azından ('Sembol'/'Symbol') sütunu bulunmalıdır!")
+    for index, row in df.iterrows():
+        ticker = str(row[symbol_col]).upper(); exchange = str(row.get(exchange_col, '')).upper()
+        if ticker in commodity_map: formatted_list.append(commodity_map[ticker]); continue
+        is_crypto_by_exchange = any(ex in exchange for ex in crypto_exchanges)
+        if is_crypto_by_exchange:
+            clean_ticker = ticker;
+            for suffix in crypto_suffixes: clean_ticker = clean_ticker.replace(suffix, "")
+            formatted_list.append(f"{clean_ticker}-USD"); continue
+        if "BIST" in exchange or "XIST" in exchange: formatted_list.append(f"{ticker}.IS"); continue
+        is_crypto_by_suffix = False
+        for suffix in crypto_suffixes:
+            if ticker.endswith(suffix):
+                clean_ticker = ticker.replace(suffix, ""); formatted_list.append(f"{clean_ticker}-USD"); is_crypto_by_suffix = True; break
+        if is_crypto_by_suffix: continue
+        formatted_list.append(ticker)
+    return list(set(formatted_list))
 
 @st.cache_data
 def veri_cek_ve_dogrula(tickers, start, end):
@@ -119,7 +116,7 @@ def veri_cek_ve_dogrula(tickers, start, end):
     return close_prices_df.ffill().dropna()
 
 @st.cache_data
-def sinyal_uret_ensemble_lstm(fiyat_verisi, look_back_periods=[12, 26, 52]): # Artık tuple değil
+def sinyal_uret_ensemble_lstm(fiyat_verisi, look_back_periods=[12, 26, 52]):
     predictions = []
     for look_back in look_back_periods:
         try:
@@ -154,7 +151,7 @@ def sinyal_uret_duyarlilik(ticker):
         return 0.0
 
 @st.cache_data
-def portfoyu_optimize_et(sinyaller, fiyat_verisi, piyasa_rejimi): # Artık tuple değil
+def portfoyu_optimize_et(sinyaller, fiyat_verisi, piyasa_rejimi):
     gecerli_sinyaller = {t: s for t, s in sinyaller.items() if np.isfinite(s)}
     if not gecerli_sinyaller: return {}
     fiyat_verisi = fiyat_verisi[list(gecerli_sinyaller.keys())]
@@ -179,6 +176,18 @@ def portfoyu_optimize_et(sinyaller, fiyat_verisi, piyasa_rejimi): # Artık tuple
         except (ValueError, OptimizationError):
             weights = {ticker: 1/len(fiyat_verisi.columns) for ticker in fiyat_verisi.columns}
     return weights
+
+@st.cache_data(show_spinner=False)
+def get_tickers_from_github(github_user, repo_name, file_path):
+    url = f"https://raw.githubusercontent.com/{github_user}/{repo_name}/main/{file_path}"
+    try:
+        response = requests.get(url)
+        response.raise_for_status()
+        df = pd.read_csv(io.StringIO(response.text))
+        return auto_format_tickers([df])
+    except Exception as e:
+        st.error(f"Haftanın varlık listesi GitHub'dan çekilemedi. Hata: {e}")
+        return None
 
 # =======================================================
 # BÖLÜM 2: BASİT VE GÜVENLİ GİRİŞ SİSTEMİ
@@ -212,26 +221,27 @@ st.title("🤖 Kişisel Portföy Optimizasyon Asistanı")
 
 if check_password():
     st.sidebar.success("Giriş Başarılı!")
-    st.sidebar.header("Yönetici Paneli")
-    admin_uploaded_files = st.sidebar.file_uploader("Haftanın Varlıklarını Yükle:", type="csv", accept_multiple_files=True)
-    if st.sidebar.button("Varlıkları Sisteme Kaydet"):
-        if admin_uploaded_files:
-            with st.spinner("Varlık listesi işleniyor..."):
-                df_list = [pd.read_csv(file) for file in admin_uploaded_files]
-                st.session_state['haftanin_varliklari'] = auto_format_tickers(df_list)
-            st.sidebar.success(f"{len(st.session_state['haftanin_varliklari'])} varlık kaydedildi!")
+    
+    # Yönetici paneli artık yok. Liste doğrudan GitHub'dan geliyor.
+    # Kendi GitHub kullanıcı adınızı ve proje adınızı buraya yazın
+    haftanin_varliklari = get_tickers_from_github(
+        github_user="omeryigitkaya", 
+        repo_name="kain", 
+        file_path="haftanin_varliklari.csv"
+    )
     
     st.header("Kişisel Yatırım Planınızı Oluşturun")
 
-    if 'haftanin_varliklari' in st.session_state and st.session_state['haftanin_varliklari']:
-        st.info(f"Bu hafta analiz için {len(st.session_state['haftanin_varliklari'])} potansiyel varlık bulunmaktadır.")
+    if haftanin_varliklari:
+        st.info(f"Bu hafta analiz için yöneticinin seçtiği {len(haftanin_varliklari)} potansiyel varlık bulunmaktadır.")
+        st.json(haftanin_varliklari)
+        
         yatirim_tutari = st.number_input("Yatırmak istediğiniz tutarı (USD) girin:", min_value=100.0, step=100.0, value=1000.0)
 
         if st.button("Analizi Başlat ve Portföy Önerisi Oluştur"):
             rejim = piyasa_rejimini_belirle()
             st.subheader(f"Tespit Edilen Piyasa Rejimi: {rejim}")
             
-            haftanin_varliklari = st.session_state['haftanin_varliklari']
             start_date = "2022-01-01"; end_date = pd.to_datetime("today").strftime('%Y-%m-%d')
             tum_fiyatlar = veri_cek_ve_dogrula(haftanin_varliklari, start_date, end_date)
             
@@ -285,4 +295,4 @@ if check_password():
                 else:
                     st.error("Geçerli sinyal bulunamadığı için portföy önerisi oluşturulamadı.")
     else:
-        st.warning("Sistem yeni hafta için hazırlanıyor. Lütfen bir yöneticinin haftanın varlık listesini yüklemesini bekleyin.")
+        st.error("Sistem için haftalık varlık listesi bulunamadı veya yüklenemedi. Lütfen yönetici ile iletişime geçin.")
