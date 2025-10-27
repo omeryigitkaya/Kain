@@ -5,9 +5,9 @@ import yfinance as yf
 import matplotlib.pyplot as plt
 import streamlit_authenticator as stauth
 import yaml
-# pandas_ta artık kullanılmıyor.
+# pandas_ta artık kullanılmıyor
 from pypfopt import BlackLittermanModel, risk_models
-# plotting artık kullanılmıyor.
+# plotting artık kullanılmıyor
 from pypfopt.efficient_frontier import EfficientFrontier
 from pypfopt.exceptions import OptimizationError
 import io
@@ -181,7 +181,8 @@ def portfoyu_optimize_et(sinyaller_tuple, fiyat_verisi_tuple, piyasa_rejimi):
 # =======================================================
 
 try:
-    # DÜZELTME BURADA: .copy() yerine dict() kullanıyoruz.
+    # DÜZELTME BURADA: Sadece okunabilir olan "secrets" nesnesini,
+    # üzerinde değişiklik yapılabilen normal bir sözlüğe (dict) çeviriyoruz.
     credentials = dict(st.secrets['credentials'])
     config_cookie = st.secrets['cookie']
     config_preauth = st.secrets['preauthorized']
