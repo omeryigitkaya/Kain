@@ -3,6 +3,7 @@ import pandas as pd
 import numpy as np
 import yfinance as yf
 import matplotlib.pyplot as plt
+import streamlit_authenticator as stauth
 import yaml
 from pypfopt import BlackLittermanModel, risk_models
 from pypfopt.efficient_frontier import EfficientFrontier
@@ -171,44 +172,45 @@ def portfoyu_optimize_et(sinyaller_tuple, fiyat_verisi_tuple, piyasa_rejimi):
     return weights
 
 # =======================================================
-# BÖLÜM 2: BASİT VE GÜVENLİ GİRİŞ SİSTEMİ
+# BÖLÜM 2: GÜVENLİ GİRİŞ SİSTEMİ VE STREAMLIT UYGULAMASI
 # =======================================================
 
-def check_password():
-    """Returns `True` if the user had the correct password."""
-    def password_entered():
-        if st.session_state["password"] == st.secrets["password"]:
-            st.session_state["password_correct"] = True
-            del st.session_state["password"]
-        else:
-            st.session_state["password_correct"] = False
+try:
+    # Secrets nesnesini, üzerinde değişiklik yapılabilen normal bir sözlüğe (dict) manuel olarak inşa ediyoruz.
+    credentials = {
+        'usernames': {
+            username: {
+                'email': st.secrets.credentials.usernames[username].email,
+                'name': st.secrets.credentials.usernames[username].name,
+                'password': st.secrets.credentials.usernames[username].password
+            }
+            for username in st.secrets.credentials.usernames
+        }
+    }
+    config_cookie = st.secrets['cookie']
+    config_preauth = st.secrets['preauthorized']
+except (AttributeError, KeyError):
+    st.error("Uygulama ayarları eksik veya hatalı. Lütfen yönetici ile iletişime geçin. (Secrets bölümü ayarlanmamış olabilir)")
+    st.stop()
 
-    if "password_correct" not in st.session_state:
-        st.text_input("Şifre", type="password", on_change=password_entered, key="password")
-        return False
-    elif not st.session_state["password_correct"]:
-        st.text_input("Şifre", type="password", on_change=password_entered, key="password")
-        st.error("😕 Şifre yanlış.")
-        return False
-    else:
-        return True
+authenticator = stauth.Authenticate(credentials, config_cookie['name'], config_cookie['key'], config_cookie['expiry_days'], config_preauth)
 
-# =======================================================
-# BÖLÜM 3: STREAMLIT UYGULAMASI
-# =======================================================
+name, authentication_status, username = authenticator.login('main')
 
-st.title("🤖 Kişisel Portföy Optimizasyon Asistanı")
+if st.session_state["authentication_status"]:
+    st.sidebar.title(f"Hoş Geldiniz, {st.session_state['name']}!")
+    authenticator.logout('Çıkış Yap', 'sidebar')
+    st.title("🤖 Kişisel Portföy Optimizasyon Asistanı")
 
-if check_password():
-    st.sidebar.success("Giriş Başarılı!")
-    st.sidebar.header("Yönetici Paneli")
-    admin_uploaded_files = st.sidebar.file_uploader("Haftanın Varlıklarını Yükle:", type="csv", accept_multiple_files=True)
-    if st.sidebar.button("Varlıkları Sisteme Kaydet"):
-        if admin_uploaded_files:
-            with st.spinner("Varlık listesi işleniyor..."):
-                df_list = [pd.read_csv(file) for file in admin_uploaded_files]
-                st.session_state['haftanin_varliklari'] = auto_format_tickers(df_list)
-            st.sidebar.success(f"{len(st.session_state['haftanin_varliklari'])} varlık kaydedildi!")
+    if username == 'admin':
+        st.sidebar.header("Yönetici Paneli")
+        admin_uploaded_files = st.sidebar.file_uploader("Haftanın Varlıklarını Yükle:", type="csv", accept_multiple_files=True)
+        if st.sidebar.button("Varlıkları Sisteme Kaydet"):
+            if admin_uploaded_files:
+                with st.spinner("Varlık listesi işleniyor..."):
+                    df_list = [pd.read_csv(file) for file in admin_uploaded_files]
+                    st.session_state['haftanin_varliklari'] = auto_format_tickers(df_list)
+                st.sidebar.success(f"{len(st.session_state['haftanin_varliklari'])} varlık kaydedildi!")
     
     st.header("Kişisel Yatırım Planınızı Oluşturun")
 
@@ -277,3 +279,8 @@ if check_password():
                     st.error("Geçerli sinyal bulunamadığı için portföy önerisi oluşturulamadı.")
     else:
         st.warning("Sistem yeni hafta için hazırlanıyor. Lütfen bir yöneticinin haftanın varlık listesini yüklemesini bekleyin.")
+
+elif st.session_state["authentication_status"] is False:
+    st.error('Kullanıcı adı/şifre yanlış')
+elif st.session_state["authentication_status"] is None:
+    st.warning('Lütfen kullanıcı adı ve şifrenizi girin')
