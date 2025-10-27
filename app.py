@@ -17,7 +17,7 @@ import os
 from tqdm import tqdm
 from nltk.sentiment.vader import SentimentIntensityAnalyzer
 import time
-import copy # YENİ: Derin kopyalama için gerekli kütüphane
+import copy
 
 # --- Gerekli Ayarlar ---
 warnings.filterwarnings("ignore")
@@ -181,12 +181,21 @@ def portfoyu_optimize_et(sinyaller_tuple, fiyat_verisi_tuple, piyasa_rejimi):
 
 try:
     # DÜZELTME BURADA: Secrets nesnesini, üzerinde değişiklik yapılabilen
-    # normal bir sözlüğe (dict) dönüştürmek için derin kopyalama yapıyoruz.
-    credentials = copy.deepcopy(st.secrets['credentials'])
+    # normal bir sözlüğe (dict) manuel olarak, sıfırdan inşa ediyoruz.
+    credentials = {
+        'usernames': {
+            username: {
+                'email': st.secrets.credentials.usernames[username].email,
+                'name': st.secrets.credentials.usernames[username].name,
+                'password': st.secrets.credentials.usernames[username].password
+            }
+            for username in st.secrets.credentials.usernames
+        }
+    }
     config_cookie = st.secrets['cookie']
     config_preauth = st.secrets['preauthorized']
-except (FileNotFoundError, KeyError):
-    st.error("Uygulama ayarları eksik. Lütfen yönetici ile iletişime geçin. (Secrets bölümü ayarlanmamış)")
+except (AttributeError, KeyError):
+    st.error("Uygulama ayarları eksik veya hatalı. Lütfen yönetici ile iletişime geçin. (Secrets bölümü ayarlanmamış olabilir)")
     st.stop()
 
 authenticator = stauth.Authenticate(credentials, config_cookie['name'], config_cookie['key'], config_cookie['expiry_days'], config_preauth)
@@ -194,7 +203,6 @@ authenticator = stauth.Authenticate(credentials, config_cookie['name'], config_c
 name, authentication_status, username = authenticator.login('main')
 
 if st.session_state["authentication_status"]:
-    # ... (Uygulamanın geri kalanı tamamen aynı)
     st.sidebar.title(f"Hoş Geldiniz, {st.session_state['name']}!")
     authenticator.logout('Çıkış Yap', 'sidebar')
     st.title("🤖 Kişisel Portföy Optimizasyon Asistanı")
