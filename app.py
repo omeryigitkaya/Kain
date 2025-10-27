@@ -187,7 +187,7 @@ def portfoyu_optimize_et(sinyaller_tuple, fiyat_verisi_tuple, piyasa_rejimi):
 # =======================================================
 
 try:
-    credentials = st.secrets['credentials']
+credentials = st.secrets['credentials'].copy()
     config_cookie = st.secrets['cookie']
     config_preauth = st.secrets['preauthorized']
 except (FileNotFoundError, KeyError):
