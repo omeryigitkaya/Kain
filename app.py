@@ -27,14 +27,10 @@ plt.style.use('seaborn-v0_8-darkgrid')
 # =======================================================
 # BÖLÜM 1: TÜM YARDIMCI FONKSİYONLAR
 # =======================================================
-
 def cizim_yap_agirliklar(weights, ax=None):
-    if ax is None:
-        fig, ax = plt.subplots()
-    labels = list(weights.keys())
-    sizes = list(weights.values())
-    ax.pie(sizes, labels=labels, autopct='%1.1f%%', startangle=90)
-    ax.axis('equal')
+    if ax is None: fig, ax = plt.subplots()
+    labels = list(weights.keys()); sizes = list(weights.values())
+    ax.pie(sizes, labels=labels, autopct='%1.1f%%', startangle=90); ax.axis('equal')
     return ax.get_figure()
 
 @st.cache_data(show_spinner=False)
