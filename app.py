@@ -3,7 +3,7 @@ import pandas as pd
 import numpy as np
 import yfinance as yf
 import matplotlib.pyplot as plt
-import streamlit_authenticator as stauth
+# streamlit_authenticator artık kullanılmıyor.
 import yaml
 from pypfopt import BlackLittermanModel, risk_models
 from pypfopt.efficient_frontier import EfficientFrontier
@@ -17,7 +17,6 @@ import os
 from tqdm import tqdm
 from nltk.sentiment.vader import SentimentIntensityAnalyzer
 import time
-import copy
 
 # --- Gerekli Ayarlar ---
 warnings.filterwarnings("ignore")
@@ -30,9 +29,12 @@ plt.style.use('seaborn-v0_8-darkgrid')
 # =======================================================
 
 def cizim_yap_agirliklar(weights, ax=None):
-    if ax is None: fig, ax = plt.subplots()
-    labels = list(weights.keys()); sizes = list(weights.values())
-    ax.pie(sizes, labels=labels, autopct='%1.1f%%', startangle=90); ax.axis('equal')
+    if ax is None:
+        fig, ax = plt.subplots()
+    labels = list(weights.keys())
+    sizes = list(weights.values())
+    ax.pie(sizes, labels=labels, autopct='%1.1f%%', startangle=90)
+    ax.axis('equal')
     return ax.get_figure()
 
 @st.cache_data(show_spinner=False)
@@ -51,7 +53,8 @@ def piyasa_rejimini_belirle():
                 veri = yf.download(info['ticker'], period="2y", progress=False, auto_adjust=True)
                 if veri is not None and not veri.empty: break
                 time.sleep(1)
-            except Exception: time.sleep(1)
+            except Exception:
+                time.sleep(1)
         try:
             if veri is None or veri.empty: raise ValueError("Veri indirilemedi.")
             veri['MA200'] = veri['Close'].rolling(window=200).mean()
@@ -59,11 +62,15 @@ def piyasa_rejimini_belirle():
             if not np.isfinite(son_fiyat) or not np.isfinite(son_ma200): raise ValueError("Fiyat/MA200 geçersiz.")
             puan = 1 if (info['yon'] == 'yukari' and son_fiyat > son_ma200) or (info['yon'] == 'asagi' and son_fiyat < son_ma200) else -1
             toplam_puan += puan; puan_detaylari[isim] = "POZİTİF (+1)" if puan == 1 else "NEGATİF (-1)"
-        except Exception as e: puan_detaylari[isim] = f"İşlenemedi (0) - {e}"
-    
-    if toplam_puan >= 3: rejim = "GÜÇLÜ POZİTİF (BOĞA 🐂🐂)"
-    elif toplam_puan >= 1: rejim = "TEMKİNLİ POZİTİF (BOĞA 🐂)"
-    else: rejim = "TEMKİNLİ NEGATİF (AYI 🐻)"
+        except Exception as e:
+            puan_detaylari[isim] = f"İşlenemedi (0) - {e}"
+
+    if toplam_puan >= 3:
+        rejim = "GÜÇLÜ POZİTİF (BOĞA 🐂🐂)"
+    elif toplam_puan >= 1:
+        rejim = "TEMKİNLİ POZİTİF (BOĞA 🐂)"
+    else:
+        rejim = "TEMKİNLİ NEGATİF (AYI 🐻)"
     return rejim
 
 @st.cache_data
@@ -126,7 +133,8 @@ def sinyal_uret_ensemble_lstm(fiyat_verisi, look_back_periods=[12, 26, 52]): # A
             last_look_back_weeks = scaled_data[-look_back:]; X_test = np.array([last_look_back_weeks.flatten()]); X_test = np.reshape(X_test, (X_test.shape[0], X_test.shape[1], 1))
             predicted_scaled = model.predict(X_test, verbose=0); predicted_price = scaler.inverse_transform(predicted_scaled)[0][0]
             predictions.append(predicted_price)
-        except Exception: continue
+        except Exception:
+            continue
     last_known_price = fiyat_verisi.iloc[-1]
     if not predictions: return {"tahmin_yuzde": 0.0, "son_fiyat": last_known_price, "hedef_fiyat": last_known_price}
     ortalama_hedef_fiyat = np.mean(predictions)
@@ -142,7 +150,8 @@ def sinyal_uret_duyarlilik(ticker):
         sia = SentimentIntensityAnalyzer()
         scores = [sia.polarity_scores(article['title'])['compound'] for article in news]
         return np.mean(scores) if scores else 0.0
-    except Exception: return 0.0
+    except Exception:
+        return 0.0
 
 @st.cache_data
 def portfoyu_optimize_et(sinyaller, fiyat_verisi, piyasa_rejimi): # Artık tuple değil
@@ -165,48 +174,52 @@ def portfoyu_optimize_et(sinyaller, fiyat_verisi, piyasa_rejimi): # Artık tuple
     try:
         weights = ef.max_sharpe() if hedef == "max_sharpe" else ef.min_volatility()
     except (ValueError, OptimizationError):
-        try: weights = ef.min_volatility()
-        except (ValueError, OptimizationError): weights = {ticker: 1/len(fiyat_verisi.columns) for ticker in fiyat_verisi.columns}
+        try:
+            weights = ef.min_volatility()
+        except (ValueError, OptimizationError):
+            weights = {ticker: 1/len(fiyat_verisi.columns) for ticker in fiyat_verisi.columns}
     return weights
 
 # =======================================================
-# BÖLÜM 2: GÜVENLİ GİRİŞ SİSTEMİ VE STREAMLIT UYGULAMASI
+# BÖLÜM 2: BASİT VE GÜVENLİ GİRİŞ SİSTEMİ
 # =======================================================
 
-try:
-    credentials = {
-        'usernames': {
-            username: {
-                'email': st.secrets.credentials.usernames[username].email,
-                'name': st.secrets.credentials.usernames[username].name,
-                'password': st.secrets.credentials.usernames[username].password
-            }
-            for username in st.secrets.credentials.usernames
-        }
-    }
-    config_cookie = st.secrets['cookie']
-    config_preauth = st.secrets['preauthorized']
-except (AttributeError, KeyError):
-    st.error("Uygulama ayarları eksik veya hatalı. (Secrets bölümü ayarlanmamış olabilir)")
-    st.stop()
+def check_password():
+    """Returns `True` if the user had the correct password."""
+    def password_entered():
+        if st.session_state["password"] == st.secrets["password"]:
+            st.session_state["password_correct"] = True
+            del st.session_state["password"]
+        else:
+            st.session_state["password_correct"] = False
 
-authenticator = stauth.Authenticate(credentials, config_cookie['name'], config_cookie['key'], config_cookie['expiry_days'], config_preauth)
-name, authentication_status, username = authenticator.login('main')
+    if "password_correct" not in st.session_state:
+        st.text_input("Şifre", type="password", on_change=password_entered, key="password")
+        st.write("---")
+        return False
+    elif not st.session_state["password_correct"]:
+        st.text_input("Şifre", type="password", on_change=password_entered, key="password")
+        st.error("😕 Şifre yanlış.")
+        return False
+    else:
+        return True
 
-if st.session_state["authentication_status"]:
-    st.sidebar.title(f"Hoş Geldiniz, {st.session_state['name']}!")
-    authenticator.logout('Çıkış Yap', 'sidebar')
-    st.title("🤖 Kişisel Portföy Optimizasyon Asistanı")
+# =======================================================
+# BÖLÜM 3: STREAMLIT UYGULAMASI
+# =======================================================
 
-    if username == 'admin':
-        st.sidebar.header("Yönetici Paneli")
-        admin_uploaded_files = st.sidebar.file_uploader("Haftanın Varlıklarını Yükle:", type="csv", accept_multiple_files=True)
-        if st.sidebar.button("Varlıkları Sisteme Kaydet"):
-            if admin_uploaded_files:
-                with st.spinner("Varlık listesi işleniyor..."):
-                    df_list = [pd.read_csv(file) for file in admin_uploaded_files]
-                    st.session_state['haftanin_varliklari'] = auto_format_tickers(df_list)
-                st.sidebar.success(f"{len(st.session_state['haftanin_varliklari'])} varlık kaydedildi!")
+st.title("🤖 Kişisel Portföy Optimizasyon Asistanı")
+
+if check_password():
+    st.sidebar.success("Giriş Başarılı!")
+    st.sidebar.header("Yönetici Paneli")
+    admin_uploaded_files = st.sidebar.file_uploader("Haftanın Varlıklarını Yükle:", type="csv", accept_multiple_files=True)
+    if st.sidebar.button("Varlıkları Sisteme Kaydet"):
+        if admin_uploaded_files:
+            with st.spinner("Varlık listesi işleniyor..."):
+                df_list = [pd.read_csv(file) for file in admin_uploaded_files]
+                st.session_state['haftanin_varliklari'] = auto_format_tickers(df_list)
+            st.sidebar.success(f"{len(st.session_state['haftanin_varliklari'])} varlık kaydedildi!")
     
     st.header("Kişisel Yatırım Planınızı Oluşturun")
 
@@ -228,7 +241,6 @@ if st.session_state["authentication_status"]:
                 final_signals = {}; lstm_sinyal_detaylari = {}
                 progress_bar = st.progress(0, text="AI Sinyalleri üretiliyor...")
                 for i, ticker in enumerate(tum_fiyatlar.columns):
-                    # DEĞİŞİKLİK: Artık doğrudan DataFrame'in kendisini yolluyoruz
                     lstm_data = sinyal_uret_ensemble_lstm(tum_fiyatlar[ticker])
                     lstm_sinyal_detaylari[ticker] = lstm_data
                     sentiment_signal = sinyal_uret_duyarlilik(ticker)
@@ -239,17 +251,38 @@ if st.session_state["authentication_status"]:
                 progress_bar.empty()
                 
                 st.info(f"Strateji Modu: {'Ofansif' if 'POZİTİF' in rejim else 'Defansif'}")
-                # DEĞİŞİKLİK: Artık doğrudan DataFrame'in kendisini yolluyoruz
                 optimal_agirliklar = portfoyu_optimize_et(final_signals, tum_fiyatlar, rejim)
                 
                 if optimal_agirliklar:
                     st.success("Analiz Tamamlandı!")
-                    # ... (Raporlama kısmı aynı, değişiklik yok)
-                    # ...
+                    st.subheader("Kişisel Haftalık Yatırım Planı")
+                    report_data = []; toplam_tahmini_deger = 0
+                    for ticker, weight in optimal_agirliklar.items():
+                        details = lstm_sinyal_detaylari[ticker]
+                        yatirilacak_miktar = yatirim_tutari * weight
+                        tahmini_hafta_sonu_degeri = yatirilacak_miktar * (1 + details['tahmin_yuzde'])
+                        toplam_tahmini_deger += tahmini_hafta_sonu_degeri
+                        report_data.append({
+                            "Varlık": ticker, "Ağırlık": weight, "Yatırılacak Miktar ($)": yatirilacak_miktar,
+                            "Alım Fiyatı": details['son_fiyat'], "Hedef Fiyat": details['hedef_fiyat'],
+                            "Beklenti": details['tahmin_yuzde'], "Tahmini Değer ($)": tahmini_hafta_sonu_degeri
+                        })
+                    report_df = pd.DataFrame(report_data)
+                    st.dataframe(report_df.style.format({
+                        'Ağırlık': '{:.2%}', 'Yatırılacak Miktar ($)': '{:,.2f}', 'Alım Fiyatı': '{:.2f}',
+                        'Hedef Fiyat': '{:.2f}', 'Beklenti': '{:+.2%}', 'Tahmini Değer ($)': '{:,.2f}'
+                    }))
+
+                    tahmini_kar_zarar = toplam_tahmini_deger - yatirim_tutari
+                    st.subheader("Haftalık Özet")
+                    col1, col2, col3 = st.columns(3)
+                    col1.metric("Başlangıç Sermeyesi", f"${yatirim_tutari:,.2f}")
+                    col2.metric("Tahmini Hafta Sonu Değeri", f"${toplam_tahmini_deger:,.2f}")
+                    col3.metric("Tahmini Kar/Zarar", f"${tahmini_kar_zarar:,.2f}", f"{tahmini_kar_zarar/yatirim_tutari:.2%}")
+
+                    fig = cizim_yap_agirliklar(optimal_agirliklar)
+                    st.pyplot(fig)
+                else:
+                    st.error("Geçerli sinyal bulunamadığı için portföy önerisi oluşturulamadı.")
     else:
         st.warning("Sistem yeni hafta için hazırlanıyor. Lütfen bir yöneticinin haftanın varlık listesini yüklemesini bekleyin.")
-
-elif st.session_state["authentication_status"] is False:
-    st.error('Kullanıcı adı/şifre yanlış')
-elif st.session_state["authentication_status"] is None:
-    st.warning('Lütfen kullanıcı adı ve şifrenizi girin')
