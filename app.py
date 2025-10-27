@@ -3,6 +3,8 @@ import pandas as pd
 import numpy as np
 import yfinance as yf
 import matplotlib.pyplot as plt
+import streamlit_authenticator as stauth
+import yaml
 import pandas_ta as ta
 from pypfopt import BlackLittermanModel, risk_models, plotting
 from pypfopt.efficient_frontier import EfficientFrontier
@@ -20,13 +22,13 @@ import time
 # --- Gerekli Ayarlar ---
 warnings.filterwarnings("ignore")
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
-st.set_page_config(layout="wide") # Sayfayı daha geniş kullan
+st.set_page_config(layout="wide")
 
 # =======================================================
 # BÖLÜM 1: TÜM YARDIMCI FONKSİYONLAR
 # =======================================================
 # Not: Streamlit'in cache'i, bu fonksiyonların sonuçlarını hafızada tutar.
-# Böylece her kullanıcı butona bastığında, bu ağır hesaplamalar tekrar tekrar çalışmaz.
+# Bu, uygulamanızın çok daha hızlı çalışmasını sağlar.
 
 @st.cache_data(show_spinner=False)
 def piyasa_rejimini_belirle():
@@ -103,7 +105,7 @@ def veri_cek_ve_dogrula(tickers, start, end):
 
 @st.cache_data
 def sinyal_uret_ensemble_lstm(fiyat_verisi_tuple, look_back_periods=[12, 26, 52]):
-    fiyat_verisi = pd.Series(fiyat_verisi_tuple[1], index=fiyat_verisi_tuple[0], name="Close")
+    fiyat_verisi = pd.Series(fiyat_verisi_tuple[1], index=pd.to_datetime(fiyat_verisi_tuple[0]), name="Close")
     predictions = []
     for look_back in look_back_periods:
         try:
@@ -137,7 +139,8 @@ def sinyal_uret_duyarlilik(ticker):
 
 @st.cache_data
 def portfoyu_optimize_et(sinyaller_tuple, fiyat_verisi_tuple, piyasa_rejimi):
-    sinyaller = dict(sinyaller_tuple); fiyat_verisi = pd.DataFrame(fiyat_verisi_tuple[1], index=fiyat_verisi_tuple[0], columns=fiyat_verisi_tuple[2])
+    sinyaller = dict(sinyaller_tuple)
+    fiyat_verisi = pd.DataFrame(fiyat_verisi_tuple[1], index=pd.to_datetime(fiyat_verisi_tuple[0]), columns=fiyat_verisi_tuple[2])
     gecerli_sinyaller = {t: s for t, s in sinyaller.items() if np.isfinite(s)}
     if not gecerli_sinyaller: return {}
     fiyat_verisi = fiyat_verisi[list(gecerli_sinyaller.keys())]
@@ -150,4 +153,134 @@ def portfoyu_optimize_et(sinyaller_tuple, fiyat_verisi_tuple, piyasa_rejimi):
     S = risk_models.sample_cov(fiyat_verisi)
     market_caps = {ticker: 1 for ticker in fiyat_verisi.columns}; max_abs_pred = max(abs(p) for p in gecerli_sinyaller.values()) if gecerli_sinyaller else 1
     scaling_factor = 0.10 / max_abs_pred if max_abs_pred != 0 else 0; annual_excess_returns = {ticker: pred * scaling_factor * 52 for ticker, pred in gecerli_sinyaller.items()}
-    delta = 2.5; market_prior = S.dot(pd.Series(market_caps) /
+    delta = 2.5; market_prior = S.dot(pd.Series(market_caps) / sum(market_caps.values())) * delta
+    final_absolute_views = {ticker: market_prior[ticker] + annual_excess_returns.get(ticker, 0) for ticker in market_prior.index}
+    bl = BlackLittermanModel(S, pi=market_prior, absolute_views=final_absolute_views); ret_bl = bl.bl_returns()
+    ef = EfficientFrontier(ret_bl, S, weight_bounds=(0, agirlik_limiti))
+    try:
+        weights = ef.max_sharpe() if hedef == "max_sharpe" else ef.min_volatility()
+    except (ValueError, OptimizationError):
+        try: weights = ef.min_volatility()
+        except (ValueError, OptimizationError): weights = {ticker: 1/len(fiyat_verisi.columns) for ticker in fiyat_verisi.columns}
+    return weights
+
+# =======================================================
+# BÖLÜM 2: GİRİŞ SİSTEMİ VE STREAMLIT UYGULAMASI
+# =======================================================
+
+# 1. Kullanıcı Veritabanını Yükle
+# Bu config dosyasını app.py ile aynı klasöre koymalısınız.
+with open('config.yaml') as file:
+    config = yaml.load(file, Loader=yaml.SafeLoader)
+
+# 2. Giriş Sistemini Oluştur
+authenticator = stauth.Authenticate(
+    config['credentials'],
+    config['cookie']['name'],
+    config['cookie']['key'],
+    config['cookie']['expiry_days'],
+    config['preauthorized']
+)
+
+# 3. Giriş Formunu Göster
+name, authentication_status, username = authenticator.login('main')
+
+# --- Giriş Kontrolü ---
+if st.session_state["authentication_status"]:
+    # --- BAŞARILI GİRİŞ SONRASI GÖSTERİLECEK UYGULAMA ---
+    st.sidebar.title(f"Hoş Geldiniz, {st.session_state['name']}!")
+    authenticator.logout('Çıkış Yap', 'sidebar')
+
+    st.title("🤖 Kişisel Portföy Optimizasyon Asistanı")
+    st.write("Yapay zeka, duyarlılık analizi ve piyasa rejimine göre kişiselleştirilmiş haftalık portföy önerileri.")
+
+    # Admin Paneli (Sadece 'admin' kullanıcısı için)
+    if username == 'admin': # config.yaml dosyanızdaki admin kullanıcı adı
+        st.sidebar.header("Yönetici Paneli")
+        admin_uploaded_files = st.sidebar.file_uploader("Haftanın Varlıklarını Yükle:", type="csv", accept_multiple_files=True)
+        if st.sidebar.button("Varlıkları Sisteme Kaydet"):
+            if admin_uploaded_files:
+                with st.spinner("Varlık listesi işleniyor..."):
+                    all_tickers = []
+                    for file in admin_uploaded_files:
+                        raw_df = pd.read_csv(file)
+                        formatted_tickers = auto_format_tickers(raw_df)
+                        all_tickers.extend(formatted_tickers)
+                    st.session_state['haftanin_varliklari'] = list(set(all_tickers))
+                st.sidebar.success(f"{len(st.session_state['haftanin_varliklari'])} varlık kaydedildi!")
+                st.sidebar.json(st.session_state['haftanin_varliklari'])
+    
+    # Kullanıcı Arayüzü
+    st.header("Kişisel Yatırım Planınızı Oluşturun")
+
+    if 'haftanin_varliklari' in st.session_state and st.session_state['haftanin_varliklari']:
+        st.info(f"Bu hafta analiz için {len(st.session_state['haftanin_varliklari'])} potansiyel varlık bulunmaktadır.")
+        yatirim_tutari = st.number_input("Yatırmak istediğiniz tutarı (USD) girin:", min_value=100.0, step=100.0, value=1000.0)
+
+        if st.button("Analizi Başlat ve Portföy Önerisi Oluştur"):
+            rejim = piyasa_rejimini_belirle()
+            st.subheader(f"Tespit Edilen Piyasa Rejimi: {rejim}")
+            
+            haftanin_varliklari = st.session_state['haftanin_varliklari']
+            start_date = "2022-01-01"; end_date = pd.to_datetime("today").strftime('%Y-%m-%d')
+            tum_fiyatlar = veri_cek_ve_dogrula(haftanin_varliklari, start_date, end_date)
+            
+            if tum_fiyatlar.empty:
+                st.error("Seçilen varlıklar için analiz edilecek yeterli veri bulunamadı.")
+            else:
+                final_signals = {}; lstm_sinyal_detaylari = {}
+                progress_bar = st.progress(0, text="AI Sinyalleri üretiliyor...")
+                for i, ticker in enumerate(tum_fiyatlar.columns):
+                    fiyat_verisi_tuple = (tum_fiyatlar[ticker].index.to_series(), tum_fiyatlar[ticker].values)
+                    lstm_data = sinyal_uret_ensemble_lstm(fiyat_verisi_tuple)
+                    lstm_sinyal_detaylari[ticker] = lstm_data
+                    sentiment_signal = sinyal_uret_duyarlilik(ticker)
+                    sentiment_effect = sentiment_signal * 0.10
+                    blended_signal = (lstm_data["tahmin_yuzde"] * 0.70) + (sentiment_effect * 0.30)
+                    final_signals[ticker] = blended_signal
+                    progress_bar.progress((i + 1) / len(tum_fiyatlar.columns), text=f"AI Sinyali üretiliyor: {ticker}")
+                progress_bar.empty()
+                
+                st.info(f"Strateji Modu: {'Ofansif' if 'POZİTİF' in rejim else 'Defansif'}")
+                fiyat_verisi_tuple = (tum_fiyatlar.index.to_series(), tum_fiyatlar.values, tum_fiyatlar.columns)
+                optimal_agirliklar = portfoyu_optimize_et(tuple(final_signals.items()), fiyat_verisi_tuple, rejim)
+                
+                if optimal_agirliklar:
+                    st.success("Analiz Tamamlandı!")
+                    st.subheader("Kişisel Haftalık Yatırım Planı")
+                    report_data = []; toplam_tahmini_deger = 0
+                    for ticker, weight in optimal_agirliklar.items():
+                        details = lstm_sinyal_detaylari[ticker]
+                        yatirilacak_miktar = yatirim_tutari * weight
+                        tahmini_hafta_sonu_degeri = yatirilacak_miktar * (1 + details['tahmin_yuzde'])
+                        toplam_tahmini_deger += tahmini_hafta_sonu_degeri
+                        report_data.append({
+                            "Varlık": ticker, "Ağırlık": weight, "Yatırılacak Miktar ($)": yatirilacak_miktar,
+                            "Alım Fiyatı": details['son_fiyat'], "Hedef Fiyat": details['hedef_fiyat'],
+                            "Beklenti": details['tahmin_yuzde'], "Tahmini Değer ($)": tahmini_hafta_sonu_degeri
+                        })
+                    report_df = pd.DataFrame(report_data)
+                    st.dataframe(report_df.style.format({
+                        'Ağırlık': '{:.2%}', 'Yatırılacak Miktar ($)': '{:,.2f}', 'Alım Fiyatı': '{:.2f}',
+                        'Hedef Fiyat': '{:.2f}', 'Beklenti': '{:+.2%}', 'Tahmini Değer ($)': '{:,.2f}'
+                    }))
+
+                    tahmini_kar_zarar = toplam_tahmini_deger - yatirim_tutari
+                    st.subheader("Haftalık Özet")
+                    col1, col2, col3 = st.columns(3)
+                    col1.metric("Başlangıç Sermayesi", f"${yatirim_tutari:,.2f}")
+                    col2.metric("Tahmini Hafta Sonu Değeri", f"${toplam_tahmini_deger:,.2f}")
+                    col3.metric("Tahmini Kar/Zarar", f"${tahmini_kar_zarar:,.2f}", f"{tahmini_kar_zarar/yatirim_tutari:.2%}")
+
+                    fig, ax = plt.subplots()
+                    plotting.plot_weights(optimal_agirliklar, ax=ax)
+                    st.pyplot(fig)
+                else:
+                    st.error("Geçerli sinyal bulunamadığı için portföy önerisi oluşturulamadı.")
+    else:
+        st.warning("Sistem yeni hafta için hazırlanıyor. Lütfen bir yöneticinin haftanın varlık listesini yüklemesini bekleyin.")
+
+elif st.session_state["authentication_status"] is False:
+    st.error('Kullanıcı adı/şifre yanlış')
+elif st.session_state["authentication_status"] is None:
+    st.warning('Lütfen kullanıcı adı ve şifrenizi girin')
