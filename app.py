@@ -3,10 +3,11 @@ import pandas as pd
 import numpy as np
 import yfinance as yf
 import matplotlib.pyplot as plt
-plt.style.use('seaborn-v0_8-darkgrid')
 import streamlit_authenticator as stauth
 import yaml
-from pypfopt import BlackLittermanModel, risk_models, plotting
+# pandas_ta artık kullanılmıyor.
+# pypfopt.plotting artık kullanılmıyor.
+from pypfopt import BlackLittermanModel, risk_models
 from pypfopt.efficient_frontier import EfficientFrontier
 from pypfopt.exceptions import OptimizationError
 import io
@@ -23,11 +24,27 @@ import time
 warnings.filterwarnings("ignore")
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
 st.set_page_config(layout="wide", page_title="Finansal Asistan")
+# HATAYI ÖNLEMEK İÇİN KENDİ STİLİMİZİ BELİRLİYORUZ
+plt.style.use('seaborn-v0_8-darkgrid')
 
 # =======================================================
-# BÖLÜM 1: TÜM YARDIMCI FONKSİYONLAR (CACHE'LENMİŞ)
+# BÖLÜM 1: TÜM YARDIMCI FONKSİYONLAR
 # =======================================================
 
+# YENİ FONKSİYON: Kendi Grafik Çizim Motorumuz
+def cizim_yap_agirliklar(weights, ax=None):
+    if ax is None:
+        fig, ax = plt.subplots()
+    
+    labels = list(weights.keys())
+    sizes = list(weights.values())
+    
+    ax.pie(sizes, labels=labels, autopct='%1.1f%%', startangle=90)
+    ax.axis('equal')  # Dairenin tam yuvarlak olmasını sağlar.
+    plt.title("Önerilen Haftalık Portföy Dağılımı")
+    return ax.get_figure()
+
+# ... (Diğer tüm yardımcı fonksiyonlar - piyasa_rejimi, auto_format, veri_cek, lstm, duyarlılık, optimizasyon - aynı kalıyor)
 @st.cache_data(show_spinner=False)
 def piyasa_rejimini_belirle():
     st.write("Piyasa rejimi analiz ediliyor...")
@@ -169,7 +186,6 @@ def portfoyu_optimize_et(sinyaller_tuple, fiyat_verisi_tuple, piyasa_rejimi):
 # BÖLÜM 2: GÜVENLİ GİRİŞ SİSTEMİ VE STREAMLIT UYGULAMASI
 # =======================================================
 
-# 1. Kullanıcı Veritabanını Yükle (Önce Sırlar Kasasından, sonra config.yaml'dan)
 try:
     credentials = st.secrets['credentials']
     config_cookie = st.secrets['cookie']
@@ -178,28 +194,15 @@ except (FileNotFoundError, KeyError):
     st.error("Uygulama ayarları eksik. Lütfen yönetici ile iletişime geçin. (Secrets bölümü ayarlanmamış)")
     st.stop()
 
-# 2. Giriş Sistemini Oluştur
-authenticator = stauth.Authenticate(
-    credentials,
-    config_cookie['name'],
-    config_cookie['key'],
-    config_cookie['expiry_days'],
-    config_preauth
-)
+authenticator = stauth.Authenticate(credentials, config_cookie['name'], config_cookie['key'], config_cookie['expiry_days'], config_preauth)
 
-# 3. Giriş Formunu Göster
 name, authentication_status, username = authenticator.login('main')
 
-# --- Giriş Kontrolü ---
 if st.session_state["authentication_status"]:
-    # --- BAŞARILI GİRİŞ SONRASI GÖSTERİLECEK UYGULAMA ---
     st.sidebar.title(f"Hoş Geldiniz, {st.session_state['name']}!")
     authenticator.logout('Çıkış Yap', 'sidebar')
-
     st.title("🤖 Kişisel Portföy Optimizasyon Asistanı")
-    st.write("Yapay zeka, duyarlılık analizi ve piyasa rejimine göre kişiselleştirilmiş haftalık portföy önerileri.")
 
-    # Admin Paneli (Sadece 'admin' kullanıcısı için)
     if username == 'admin':
         st.sidebar.header("Yönetici Paneli")
         admin_uploaded_files = st.sidebar.file_uploader("Haftanın Varlıklarını Yükle:", type="csv", accept_multiple_files=True)
@@ -209,9 +212,7 @@ if st.session_state["authentication_status"]:
                     df_list = [pd.read_csv(file) for file in admin_uploaded_files]
                     st.session_state['haftanin_varliklari'] = auto_format_tickers(df_list)
                 st.sidebar.success(f"{len(st.session_state['haftanin_varliklari'])} varlık kaydedildi!")
-                st.sidebar.json(st.session_state['haftanin_varliklari'])
     
-    # Kullanıcı Arayüzü
     st.header("Kişisel Yatırım Planınızı Oluşturun")
 
     if 'haftanin_varliklari' in st.session_state and st.session_state['haftanin_varliklari']:
@@ -273,8 +274,8 @@ if st.session_state["authentication_status"]:
                     col2.metric("Tahmini Hafta Sonu Değeri", f"${toplam_tahmini_deger:,.2f}")
                     col3.metric("Tahmini Kar/Zarar", f"${tahmini_kar_zarar:,.2f}", f"{tahmini_kar_zarar/yatirim_tutari:.2%}")
 
-                    fig, ax = plt.subplots()
-                    plotting.plot_weights(optimal_agirliklar, ax=ax)
+                    # DEĞİŞİKLİK: Kendi çizim fonksiyonumuzu çağırıyoruz
+                    fig = cizim_yap_agirliklar(optimal_agirliklar)
                     st.pyplot(fig)
                 else:
                     st.error("Geçerli sinyal bulunamadığı için portföy önerisi oluşturulamadı.")
