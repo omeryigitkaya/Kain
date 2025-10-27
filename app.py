@@ -17,7 +17,7 @@ import os
 from tqdm import tqdm
 from nltk.sentiment.vader import SentimentIntensityAnalyzer
 import time
-import copy
+import copy # YENİ: Derin kopyalama için gerekli kütüphane
 
 # --- Gerekli Ayarlar ---
 warnings.filterwarnings("ignore")
@@ -181,17 +181,8 @@ def portfoyu_optimize_et(sinyaller_tuple, fiyat_verisi_tuple, piyasa_rejimi):
 
 try:
     # DÜZELTME BURADA: Secrets nesnesini, üzerinde değişiklik yapılabilen
-    # normal bir sözlüğe (dict) manuel olarak, sıfırdan inşa ediyoruz.
-    credentials = {
-        'usernames': {
-            username: {
-                'email': st.secrets.credentials.usernames[username].email,
-                'name': st.secrets.credentials.usernames[username].name,
-                'password': st.secrets.credentials.usernames[username].password
-            }
-            for username in st.secrets.credentials.usernames
-        }
-    }
+    # normal bir sözlüğe (dict) dönüştürmek için derin kopyalama yapıyoruz.
+    credentials = copy.deepcopy(st.secrets['credentials'])
     config_cookie = st.secrets['cookie']
     config_preauth = st.secrets['preauthorized']
 except (AttributeError, KeyError):
