@@ -37,11 +37,7 @@ def cizim_yap_agirliklar(weights, ax=None):
 @st.cache_data(show_spinner=False)
 def piyasa_rejimini_belirle():
     st.write("Piyasa rejimi analiz ediliyor...")
-    rejim_gostergeleri = {
-        "NASDAQ": {"ticker": "^IXIC", "yon": "yukari"}, "BIST 100": {"ticker": "XU100.IS", "yon": "yukari"},
-        "Altın": {"ticker": "GC=F", "yon": "yukari"}, "Bitcoin": {"ticker": "BTC-USD", "yon": "yukari"},
-        "ABD 10Y Faiz": {"ticker": "^TNX", "yon": "asagi"}
-    }
+    rejim_gostergeleri = {"NASDAQ": {"ticker": "^IXIC", "yon": "yukari"},"BIST 100": {"ticker": "XU100.IS", "yon": "yukari"},"Altın": {"ticker": "GC=F", "yon": "yukari"},"Bitcoin": {"ticker": "BTC-USD", "yon": "yukari"},"ABD 10Y Faiz": {"ticker": "^TNX", "yon": "asagi"}}
     toplam_puan = 0; puan_detaylari = {}
     for isim, info in rejim_gostergeleri.items():
         veri = None; deneme_sayisi=3
@@ -64,32 +60,6 @@ def piyasa_rejimini_belirle():
     elif toplam_puan >= 1: rejim = "TEMKİNLİ POZİTİF (BOĞA 🐂)"
     else: rejim = "TEMKİNLİ NEGATİF (AYI 🐻)"
     return rejim
-
-@st.cache_data
-def auto_format_tickers(df_list):
-    all_formatted = []
-    for df in df_list:
-        formatted_list = []; commodity_map = {"GOLD": "GC=F", "SILVER": "SI=F", "XAUUSD": "GC=F", "XAGUSD": "SI=F", "WTI": "CL=F", "CRUDE": "CL=F", "OIL": "CL=F", "COPPER": "HG=F", "NATURALGAS": "NG=F"}; crypto_suffixes = ["USDT", "PERP", "BUSD", "USDC"]; crypto_exchanges = ["CRYPTO", "BINANCE", "COINBASE", "KUCOIN", "KRAKEN", "COIN", "KIN"]
-        df.columns = df.columns.str.lower().str.strip()
-        symbol_col = 'sembol' if 'sembol' in df.columns else 'symbol'; exchange_col = 'borsa' if 'borsa' in df.columns else 'exchange'
-        if symbol_col not in df.columns: raise ValueError("CSV'de en azından ('Sembol'/'Symbol') sütunu bulunmalıdır!")
-        for index, row in df.iterrows():
-            ticker = str(row[symbol_col]).upper(); exchange = str(row.get(exchange_col, '')).upper()
-            if ticker in commodity_map: formatted_list.append(commodity_map[ticker]); continue
-            is_crypto_by_exchange = any(ex in exchange for ex in crypto_exchanges)
-            if is_crypto_by_exchange:
-                clean_ticker = ticker;
-                for suffix in crypto_suffixes: clean_ticker = clean_ticker.replace(suffix, "")
-                formatted_list.append(f"{clean_ticker}-USD"); continue
-            if "BIST" in exchange or "XIST" in exchange: formatted_list.append(f"{ticker}.IS"); continue
-            is_crypto_by_suffix = False
-            for suffix in crypto_suffixes:
-                if ticker.endswith(suffix):
-                    clean_ticker = ticker.replace(suffix, ""); formatted_list.append(f"{clean_ticker}-USD"); is_crypto_by_suffix = True; break
-            if is_crypto_by_suffix: continue
-            formatted_list.append(ticker)
-        all_formatted.extend(formatted_list)
-    return list(set(all_formatted))
 
 @st.cache_data
 def veri_cek_ve_dogrula(tickers, start, end):
@@ -168,6 +138,21 @@ def portfoyu_optimize_et(sinyaller, fiyat_verisi, piyasa_rejimi):
         except (ValueError, OptimizationError): weights = {ticker: 1/len(fiyat_verisi.columns) for ticker in fiyat_verisi.columns}
     return weights
 
+# YENİ BASİT FONKSİYON: GitHub'dan haftanın varlıklarını okur
+@st.cache_data(show_spinner=False)
+def get_tickers_from_github(github_user, repo_name, file_path):
+    url = f"https://raw.githubusercontent.com/{github_user}/{repo_name}/main/{file_path}"
+    try:
+        response = requests.get(url)
+        response.raise_for_status()
+        # .txt dosyasındaki her satırı bir ticker olarak al
+        tickers = response.text.strip().splitlines()
+        # Boş satırları temizle
+        return [ticker.strip() for ticker in tickers if ticker.strip()]
+    except Exception as e:
+        st.error(f"Haftanın varlık listesi GitHub'dan çekilemedi. Hata: {e}")
+        return None
+
 # =======================================================
 # BÖLÜM 2: BASİT VE GÜVENLİ GİRİŞ SİSTEMİ
 # =======================================================
@@ -193,47 +178,46 @@ st.title("🤖 Kişisel Portföy Optimizasyon Asistanı")
 
 if check_password():
     st.sidebar.success("Giriş Başarılı!")
-    st.sidebar.header("Yönetici Paneli")
-    admin_uploaded_files = st.sidebar.file_uploader("Haftanın Varlıklarını Yükle:", type="csv", accept_multiple_files=True)
-    if st.sidebar.button("Varlıkları Sisteme Kaydet"):
-        if admin_uploaded_files:
-            with st.spinner("Varlık listesi işleniyor..."):
-                df_list = [pd.read_csv(file) for file in admin_uploaded_files]
-                st.session_state['haftanin_varliklari'] = auto_format_tickers(df_list)
-            st.sidebar.success(f"{len(st.session_state['haftanin_varliklari'])} varlık kaydedildi!")
+    
+    # Yönetici paneli artık yok. Liste doğrudan GitHub'dan geliyor.
+    haftanin_varliklari = get_tickers_from_github(
+        github_user="omeryigitkaya", # KENDİ GITHUB KULLANICI ADINIZI GİRİN
+        repo_name="kain",            # KENDİ GITHUB PROJE ADINIZI GİRİN
+        file_path="haftanin_varliklari.txt" # GITHUB'A YÜKLEDİĞİNİZ TXT DOSYASININ ADI
+    )
     
     st.header("Kişisel Yatırım Planınızı Oluşturun")
 
-    if 'haftanin_varliklari' in st.session_state and st.session_state['haftanin_varliklari']:
-        st.info(f"Bu hafta analiz için {len(st.session_state['haftanin_varliklari'])} potansiyel varlık bulunmaktadır.")
+    if haftanin_varliklari:
+        st.info(f"Bu hafta analiz için yöneticinin seçtiği {len(haftanin_varliklari)} potansiyel varlık bulunmaktadır.")
+        st.json(haftanin_varliklari)
+        
         yatirim_tutari = st.number_input("Yatırmak istediğiniz tutarı (USD) girin:", min_value=100.0, step=100.0, value=1000.0)
 
         if st.button("Analizi Başlat ve Portföy Önerisi Oluştur"):
             rejim = piyasa_rejimini_belirle()
             st.subheader(f"Tespit Edilen Piyasa Rejimi: {rejim}")
-            
-            haftanin_varliklari = st.session_state['haftanin_varliklari']
             start_date = "2022-01-01"; end_date = pd.to_datetime("today").strftime('%Y-%m-%d')
             tum_fiyatlar = veri_cek_ve_dogrula(haftanin_varliklari, start_date, end_date)
             
             if tum_fiyatlar.empty:
                 st.error("Seçilen varlıklar için analiz edilecek yeterli veri bulunamadı.")
             else:
-                final_signals = {}; lstm_sinyal_detaylari = {}; sentiment_sinyalleri = {}
+                final_signals = {}; lstm_sinyal_detaylari = {}
                 progress_bar = st.progress(0, text="AI Sinyalleri üretiliyor...")
                 for i, ticker in enumerate(tum_fiyatlar.columns):
                     lstm_data = sinyal_uret_ensemble_lstm(tum_fiyatlar[ticker])
                     lstm_sinyal_detaylari[ticker] = lstm_data
                     sentiment_signal = sinyal_uret_duyarlilik(ticker)
-                    sentiment_sinyalleri[ticker] = sentiment_signal
                     sentiment_effect = sentiment_signal * 0.10
                     blended_signal = (lstm_data["tahmin_yuzde"] * 0.70) + (sentiment_effect * 0.30)
                     final_signals[ticker] = blended_signal
                     progress_bar.progress((i + 1) / len(tum_fiyatlar.columns), text=f"AI Sinyali üretiliyor: {ticker}")
                 progress_bar.empty()
                 
+                # YENİ KONTROL MEKANİZMASI
                 if np.sum(np.abs(list(final_signals.values()))) < 0.001:
-                    st.warning("🚨 Yapay Zeka, seçilen varlıklar için anlamlı bir öngörü üretemedi.")
+                    st.warning("🚨 Yapay Zeka, seçilen varlıklar için anlamlı bir öngörü üretemedi. Sinyaller çok zayıf veya nötr. Lütfen daha stabil veya daha uzun bir geçmişe sahip varlıklar seçerek tekrar deneyin.")
                 else:
                     st.info(f"Strateji Modu: {'Ofansif' if 'POZİTİF' in rejim else 'Defansif'}")
                     optimal_agirliklar = portfoyu_optimize_et(final_signals, tum_fiyatlar, rejim)
@@ -261,34 +245,13 @@ if check_password():
                         tahmini_kar_zarar = toplam_tahmini_deger - yatirim_tutari
                         st.subheader("Haftalık Özet")
                         col1, col2, col3 = st.columns(3)
-                        col1.metric("Başlangıç Sermayesi", f"${yatirim_tutari:,.2f}")
+                        col1.metric("Başlangıç Sermeyesi", f"${yatirim_tutari:,.2f}")
                         col2.metric("Tahmini Hafta Sonu Değeri", f"${toplam_tahmini_deger:,.2f}")
                         col3.metric("Tahmini Kar/Zarar", f"${tahmini_kar_zarar:,.2f}", f"{tahmini_kar_zarar/yatirim_tutari:.2%}")
-
-                        # YENİ BÖLÜM: ANALİZ KARNESİ PANELİ
-                        st.subheader("Detaylı Analiz Karneleri")
-                        # Portföydeki varlık sayısı kadar sütun oluştur, en fazla 3 yan yana
-                        num_cols = min(len(optimal_agirliklar), 3)
-                        cols = st.columns(num_cols)
-                        
-                        for i, ticker in enumerate(optimal_agirliklar.keys()):
-                            col = cols[i % num_cols]
-                            with col:
-                                st.markdown(f"##### {ticker}")
-                                lstm_beklenti = lstm_sinyal_detaylari[ticker]['tahmin_yuzde']
-                                sentiment_puan = sentiment_sinyalleri.get(ticker, 0)
-
-                                lstm_mood = "POZİTİF" if lstm_beklenti > 0.01 else ('NEGATİF' if lstm_beklenti < -0.01 else 'NÖTR')
-                                sentiment_mood = "POZİTİF" if sentiment_puan > 0.1 else ('NEGATİF' if sentiment_puan < -0.1 else 'NÖTR')
-                                
-                                st.markdown(f"**🧠 Fiyat Tahmini (AI):** **{lstm_mood}** ({lstm_beklenti:+.2%})")
-                                st.markdown(f"**📰 Haber Duyarlılığı:** **{sentiment_mood}** (Puan: {sentiment_puan:.2f})")
-                                st.markdown(f"**📈 Piyasa Uyumu:** **{'UYUMLU' if ('POZİTİF' in rejim and final_signals[ticker] > 0) else 'UYUMSUZ'}**")
-                                st.markdown("---")
 
                         fig = cizim_yap_agirliklar(optimal_agirliklar)
                         st.pyplot(fig)
                     else:
                         st.error("Portföy optimizasyonu sırasında bir hata oluştu.")
     else:
-        st.warning("Sistem yeni hafta için hazırlanıyor. Lütfen bir yöneticinin haftanın varlık listesini yüklemesini bekleyin.")
+        st.error("Sistem için haftalık varlık listesi bulunamadı veya yüklenemedi. Lütfen yönetici ile iletişime geçin.")
